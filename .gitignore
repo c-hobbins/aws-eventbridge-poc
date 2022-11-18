@@ -1,4 +1,5 @@
 .aws-sam/
 data/
-diagrams/
+diagrams/*.drawio
+diagrams/*.bkp
 backups/
