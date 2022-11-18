@@ -1,0 +1,26 @@
+openapi: "3.0.1"
+info:
+  title: "Target Api Destination - POC"
+  description: "Just a simple REST Api to serve as a target api destination for an event bridge rule invocation"
+paths:
+  /birth:
+    post:
+      #operationId: processBirthEvent
+      description: "Simple endpoint to receive events triggered from an eventbridge rule."
+      x-amazon-apigateway-integration:
+        uri: 
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${processBirthEventLambda.Arn}/invocations"
+        httpMethod: POST
+        credentials:
+          Fn::GetAtt: [CtobDpiCustomApiGWLambdaInvokeRole, Arn]
+        timeoutInMillis: 2000
+        type: "aws_proxy"
+      responses:
+        '200':
+          description: "Successful 200 response for POST to endpoint /birth"
+          content: 
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: "Bad request"

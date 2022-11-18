@@ -1,0 +1,524 @@
+# This is the SAM template that represents the architecture of your serverless application
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-template-basics.html
+
+# The AWSTemplateFormatVersion identifies the capabilities of the template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/format-version-structure.html
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  eventbus-poc
+
+# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/transform-section-structure.html
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  TargetApiName:
+    Type: String
+    Default: birth-event-api
+  TargetApiStage:
+    Type: String
+    Default: dev
+  ProxyApiStage:
+    Type: String
+    Default: dev
+  
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:
+# Cognito Resources for authentication/authorization using user pool and oauth2
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: VitalStatsPool
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: vitalstats-poc
+      UserPoolId: !Ref CognitoUserPool
+  CognitoResourceServerOnt:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Name: ont
+      Identifier: ont
+      Scopes:
+        - ScopeName: "write"
+          ScopeDescription: "write for ON users"
+      UserPoolId: !Ref CognitoUserPool
+  CognitoResourceServerAb:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Name: ab
+      Identifier: ab
+      Scopes:
+        - ScopeName: "write"
+          ScopeDescription: "write for AB users"
+      UserPoolId: !Ref CognitoUserPool
+  CognitoResourceServerQc:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Name: qc
+      Identifier: qc
+      Scopes:
+        - ScopeName: "write"
+          ScopeDescription: "write for QC users"
+      UserPoolId: !Ref CognitoUserPool
+  CognitoResourceServerBc:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Name: bc
+      Identifier: bc
+      Scopes:
+        - ScopeName: "write"
+          ScopeDescription: "write for BC users"
+      UserPoolId: !Ref CognitoUserPool
+  CognitoAppClientOnt:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoResourceServerOnt
+    Properties:
+      ClientName: ont-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: True
+      AllowedOAuthFlowsUserPoolClient: True
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - ont/write
+  CognitoAppClientAb:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoResourceServerAb
+    Properties:
+      ClientName: ab-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: True
+      AllowedOAuthFlowsUserPoolClient: True
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - ab/write
+  CognitoAppClientQc:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoResourceServerQc
+    Properties:
+      ClientName: qc-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: True
+      AllowedOAuthFlowsUserPoolClient: True
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - qc/write
+  CognitoAppClientBc:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoResourceServerBc
+    Properties:
+      ClientName: bc-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: True
+      AllowedOAuthFlowsUserPoolClient: True
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - bc/write
+
+# Create SQS Queues and policy to allow eventbridge to send messages directly for the Quebec rule
+  VitalstatsQueueQc:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: qc-births-q
+      SqsManagedSseEnabled: false
+  VitalstatsQueueCanada:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: can-births-q
+      SqsManagedSseEnabled: false
+ 
+  VitalstatsEventBusQueuePolicyQc:
+    Type: AWS::SQS::QueuePolicy
+    DependsOn: VitalstatsQueueQc
+    Properties:
+      PolicyDocument:
+        Statement:
+          - 
+            Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt VitalstatsQueueQc.Arn
+            #Condition:
+            # ArnEquals: { "aws:SourceArn": !GetAtt VitalstatsQueueTargetQc.Arn }
+      Queues:
+        - !Ref VitalstatsQueueQc
+  
+  VitalstatsSnsToSqsPolicy:
+    Type: AWS::SQS::QueuePolicy
+    DependsOn: 
+      - VitalstatsQueueCanada
+      - BirthNotificationTopicAb
+      - BirthNotificationTopicQc
+      - BirthNotificationTopicBc
+      - BirthNotificationTopicOnt
+    Properties:
+      Queues:
+        - !Ref VitalstatsQueueCanada
+      PolicyDocument:
+        Id: AllowSnsSendToSqsPolicy
+        Statement:
+            Sid: SnsSendToSqs
+            Effect: Allow
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt VitalstatsQueueCanada.Arn
+
+# SNS Topics
+  BirthNotificationTopicAb:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ab-births-1
+      DisplayName: ab-births-1
+      Subscription:
+        - Protocol: sqs
+          Endpoint: !GetAtt VitalstatsQueueCanada.Arn
+  BirthNotificationTopicOnt:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ont-births-1
+      DisplayName: ont-births-1
+      Subscription:
+        - Protocol: sqs
+          Endpoint: !GetAtt VitalstatsQueueCanada.Arn
+  BirthNotificationTopicQc:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: qc-births-1
+      DisplayName: qc-births-1
+      Subscription:
+        - Protocol: sqs
+          Endpoint: !GetAtt VitalstatsQueueCanada.Arn
+  BirthNotificationTopicBc:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: bc-births-1
+      DisplayName: bc-births-1
+      Subscription:
+        - Protocol: sqs
+          Endpoint: !GetAtt VitalstatsQueueCanada.Arn
+
+# SNS Topic Policy for allowing eventbridge to publish
+  BirthNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    DependsOn:
+      - BirthNotificationTopicAb
+      - BirthNotificationTopicOnt
+      - BirthNotificationTopicQc
+      - BirthNotificationTopicBc
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Sid: AllowEventBridge
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: 'sns:Publish'
+            Resource:
+              !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:*"
+      Topics:
+        - !Ref BirthNotificationTopicAb
+        - !Ref BirthNotificationTopicOnt
+        - !Ref BirthNotificationTopicQc
+        - !Ref BirthNotificationTopicBc
+
+# Targets. Lambdas and REST API
+# Lambda serverless function defined which also creates the EventBridge Rule. Note that other rules are created separately...
+# Not entirely consistent but the SAM Lambda function resources can do a little more...
+  processBirthEventLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ProcessBirthEventAlberta
+      CodeUri: src/handlers
+      Handler: api-handler.processEvent
+      Runtime: nodejs14.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Description: A simple Lambda REST API example to accept events invoked as an API destination target.
+      Tags:
+        cdxp:owner: chobbins
+        cdxp:project: eventbus poc
+
+  OntarioLambdaHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OntLambdaHandler
+      Description: "Simple function to demo that an eventbridge rule may trigger serverless functions to process as needed..."
+      CodeUri: src/handlers
+      Handler: ont-handler.processEvent
+      Runtime: nodejs14.x
+
+  EventbridgeLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OntarioLambdaHandler
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt VitalstatsEventRuleOnt.Arn
+      
+# Eventbridge, rules, and target configs
+  VitalstatsEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: VitalstatsEventBus
+
+  VitalstatsEventRuleQc:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !GetAtt VitalstatsEventBus.Name
+      EventPattern:
+        source: [ "birthevent.qc" ]
+        detail-type: [ "birthEvent" ]
+      Targets:
+        - Arn: !GetAtt VitalstatsQueueQc.Arn
+          Id: QcQueueTarget
+        - Arn: !Ref BirthNotificationTopicQc
+          Id: QcTopicTarget
+  
+  VitalstatsEventRuleBc:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !GetAtt VitalstatsEventBus.Name
+      EventPattern:
+        source: [ "birthevent.bc" ]
+        detail-type: [ "birthEvent" ]
+      Targets:
+        - Arn: !Ref BirthNotificationTopicBc
+          Id: BcTopicTarget
+  
+  VitalstatsEventRuleOnt:
+    Type: AWS::Events::Rule
+    DependsOn:
+      - OntarioLambdaHandler
+    Properties:
+      EventBusName: !GetAtt VitalstatsEventBus.Name
+      EventPattern:
+        source: [ "birthevent.on" ]
+        detail-type: [ "birthEvent" ]
+      Targets:
+        - Arn: !Ref BirthNotificationTopicOnt
+          Id: OntTopicTarget
+        - Arn: !GetAtt OntarioLambdaHandler.Arn
+          Id: OntLambdaTarget
+  
+  VitalstatsEventRuleAb:
+    Type: AWS::Events::Rule
+    DependsOn:
+      - VitalstatsApiDestinationAb
+      - CtobDpiEventbridgeInvokeApiDestinationRole
+    Properties:
+      EventBusName: !GetAtt VitalstatsEventBus.Name
+      EventPattern:
+        source: [ "birthevent.ab" ]
+        detail-type: [ "birthEvent" ]
+      Targets:
+        - Id: AbTopicTarget
+          Arn: !Ref BirthNotificationTopicAb        
+        - Id: AbApiDestination
+          Arn: !GetAtt VitalstatsApiDestinationAb.Arn
+          RoleArn: !GetAtt CtobDpiEventbridgeInvokeApiDestinationRole.Arn
+          HttpParameters:
+            HeaderParameters:
+              Content-type: application/json;charset=utf-8
+  
+  VitalstatsApiDestinationAb:
+    Type: AWS::Events::ApiDestination
+    DependsOn:
+      - VitalstatsApiConnectionAb
+    Properties:
+      ConnectionArn: !GetAtt VitalstatsApiConnectionAb.Arn
+      Description: "This is an API destination confirured for a hypothetical client that wishes to receives events via a RESTful APi call."
+      HttpMethod: POST
+      InvocationEndpoint: !Sub "https://${BirthEventApiTarget}.execute-api.${AWS::Region}.amazonaws.com/dev/birth"
+      Name: ApiDestinationAb
+  
+  VitalstatsApiConnectionAb:
+    Type: AWS::Events::Connection
+    Properties:
+      Name: ApiConnectionAb
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: api-key
+          ApiKeyValue: "Password1!"
+
+# IAM Role/Policy to allow eventbridge to call API destination
+  CtobDpiEventbridgeInvokeApiDestinationRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: 
+                - events.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CtobDpiInvokeApiDestinationFromEventBridge
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Action:
+                - events:InvokeApiDestination
+              Effect: Allow
+              Resource:
+                - !GetAtt VitalstatsApiDestinationAb.Arn
+
+# Create Log Group for access logging of API requests
+  VitalStatsApiAccessLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: VitalStatsProxyApiAccessLog
+      RetentionInDays: 1
+      Tags:
+        - Key: cdxp:owner
+          Value: chobbins
+        - Key: cdxp:project
+          Value: sam eventbus poc
+  
+  ApiDestinationAbApiAccessLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: ApiDestinationAbApiAccessLog
+      RetentionInDays: 1
+      Tags:
+        - Key: cdxp:owner
+          Value: chobbins
+        - Key: cdxp:project
+          Value: sam eventbus poc
+
+# Create the REST API for the target API destination
+  BirthEventApiTarget:
+    Type: AWS::Serverless::Api
+    DependsOn:
+      - processBirthEventLambda
+    Properties:
+      TracingEnabled: true
+      Name: !Ref TargetApiName
+      StageName: !Ref TargetApiStage
+      DefinitionBody:
+        'Fn::Transform':  
+          Name: 'AWS::Include'
+          Parameters:
+            Location: './restApiTargetOasSpec.yaml'
+
+# Create the HTTP proxy to eventbridge
+  VitalStatsApiProxy:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefinitionBody:
+        'Fn::Transform':
+          Name: 'AWS::Include'
+          Parameters:
+            Location: './eventbridgeProxyApiOasSpec.yaml'
+  
+  CtobDpiCustomApiGWLambdaInvokeRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: 
+                - apigateway.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CtobDpiInvokeLambdaFromApiGW
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Action:
+                - lambda:InvokeFunction
+              Effect: Allow
+              Resource:
+                - !GetAtt processBirthEventLambda.Arn
+
+  VitalStatsApiProxyStageDEV:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn: VitalStatsApiProxy
+    Properties:
+      StageName: DEV
+      AutoDeploy: True
+      Description: "DEV deployment"
+      ApiId: !Ref VitalStatsApiProxy
+      AccessLogSettings:
+        DestinationArn: !GetAtt VitalStatsApiAccessLog.Arn
+        Format: >-
+          { "requestId":"$context.requestId", 
+          "ip": "$context.identity.sourceIp", 
+          "requestTime":"$context.requestTime", 
+          "httpMethod":"$context.httpMethod",
+          "routeKey":"$context.routeKey", 
+          "status":"$context.status",
+          "protocol":"$context.protocol", 
+          "responseLength":"$context.responseLength" }
+
+  # Create the role and policy to allow the API Gateway to 'PutEvents' to the custom EventBridge
+  CtobDpiCustomApiGWPutEventsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: 
+                - apigateway.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CtobDpiPutEventsToVitalstatsEventBus
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              Action:
+                - events:PutEvents
+              Effect: Allow
+              Resource:
+                - !GetAtt VitalstatsEventBus.Arn
+
+Outputs:
+  ApiEndpoint:
+    Description: "HTTP API endpoint URL"
+    Value: !Sub 
+      - "https://${VitalStatsApiProxy}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/${Resource}"
+      - Stage: "DEV"
+        Resource: "vitalstats"
+      
+  CognitoProviderUrl:
+    Description: "Auth URL"
+    Value: 
+      Fn::GetAtt: [CognitoUserPool, ProviderURL]
+  QcAppClientId:
+    Description: "Client id required for obtaining necessary tokens. Use a CLI script to obtain the password."
+    Value: !Sub
+        - "Quebec App ClientId: ${AppClientIdQc}"
+        - AppClientIdQc: !Ref CognitoAppClientQc
+  AbAppClientId:
+    Description: "Client id required for obtaining necessary tokens. Use a CLI script to obtain the password."
+    Value: !Sub
+        - "Alberta App ClientId: ${AppClientIdAb}"
+        - AppClientIdAb: !Ref CognitoAppClientAb
+  OntAppClientId:
+    Description: "Client id required for obtaining necessary tokens. Use a CLI script to obtain the password."
+    Value: !Sub
+        - "Ontario App ClientId: ${AppClientIdOnt}"
+        - AppClientIdOnt: !Ref CognitoAppClientOnt
+  BcAppClientId:
+    Description: "Client id required for obtaining necessary tokens. Use a CLI script to obtain the password."
+    Value: !Sub
+        - "BC App ClientId: ${AppClientIdBc}"
+        - AppClientIdBc: !Ref CognitoAppClientBc
+
+  

@@ -1,0 +1,149 @@
+openapi: "3.0.1"
+info:
+  title: "EventBridgeProxy POC"
+paths:
+  /vitalstats/ab/births:
+    post:
+      responses:
+        default:
+          description: "Default response for POST /vitalstats/ab/births"
+      security:
+        - cognito-ab-authclient:
+          - "ab/write"
+      x-amazon-apigateway-integration:
+        integrationSubtype: "EventBridge-PutEvents"
+        credentials: 
+          Fn::GetAtt: [CtobDpiCustomApiGWPutEventsRole, Arn]
+        requestParameters:
+          EventBusName:
+            Fn::GetAtt: [VitalstatsEventBus, Name]
+          Region: "ca-central-1"
+          Detail: "$request.body.detail"
+          DetailType: "birthEvent"
+          Source: "birthevent.ab"
+        payloadFormatVersion: "1.0"
+        type: "aws_proxy"
+        connectionType: "INTERNET"
+        timeoutInMillis: 30000
+  /vitalstats/on/births:
+    post:
+      responses:
+        default:
+          description: "Default response for POST /vitalstats/on/births"
+      security:
+        - cognito-on-authclient:
+          - "ont/write"
+      x-amazon-apigateway-integration:
+        integrationSubtype: "EventBridge-PutEvents"
+        credentials:
+          Fn::GetAtt: [CtobDpiCustomApiGWPutEventsRole, Arn]
+        requestParameters:
+          EventBusName:
+            Fn::GetAtt: [VitalstatsEventBus, Name]
+          Region: "ca-central-1"
+          Detail: "$request.body.detail"
+          DetailType: "birthEvent"
+          Source: "birthevent.on"
+        payloadFormatVersion: "1.0"
+        type: "aws_proxy"
+        connectionType: "INTERNET"
+        timeoutInMillis: 30000
+  /vitalstats/qc/births:
+    post:
+      responses:
+        default:
+          description: "Default response for POST /vitalstats/qc/births"
+      security:
+        - cognito-qc-authclient:
+          - "qc/write"
+      x-amazon-apigateway-integration:
+        integrationSubtype: "EventBridge-PutEvents"
+        credentials:
+          Fn::GetAtt: [CtobDpiCustomApiGWPutEventsRole, Arn]
+        requestParameters:
+          EventBusName: 
+            Fn::GetAtt: [VitalstatsEventBus, Name]
+          Region: "ca-central-1"
+          Detail: "$request.body.detail"
+          DetailType: "birthEvent"
+          Source: "birthevent.qc"
+        payloadFormatVersion: "1.0"
+        type: "aws_proxy"
+        connectionType: "INTERNET"
+  /vitalstats/bc/births:
+    post:
+      responses:
+        default:
+          description: "Default response for POST /vitalstats/qc/births"
+      security:
+        - cognito-bc-authclient:
+          - "bc/write"
+      x-amazon-apigateway-integration:
+        integrationSubtype: "EventBridge-PutEvents"
+        credentials:
+          Fn::GetAtt: [CtobDpiCustomApiGWPutEventsRole, Arn]
+        requestParameters:
+          EventBusName: 
+            Fn::GetAtt: [VitalstatsEventBus, Name]
+          Region: "ca-central-1"
+          Detail: "$request.body.detail"
+          DetailType: "birthEvent"
+          Source: "birthevent.bc"
+        payloadFormatVersion: "1.0"
+        type: "aws_proxy"
+        connectionType: "INTERNET"
+components:
+  securitySchemes:
+    cognito-ab-authclient:
+      type: "oauth2"
+      flows: {}
+      x-amazon-apigateway-authorizer:
+        identitySource: "$request.header.Authorization"
+        jwtConfiguration:
+          audience:
+          - Ref: CognitoAppClientAb
+          issuer: 
+            Fn::GetAtt: [CognitoUserPool, ProviderURL]
+        type: "jwt"
+    cognito-on-authclient:
+      type: "oauth2"
+      flows: {}
+      x-amazon-apigateway-authorizer:
+        identitySource: "$request.header.Authorization"
+        jwtConfiguration:
+          audience:
+          - Ref: CognitoAppClientOnt
+          issuer:
+            Fn::GetAtt: [CognitoUserPool, ProviderURL]
+        type: "jwt"
+    cognito-qc-authclient:
+      type: "oauth2"
+      flows: {}
+      x-amazon-apigateway-authorizer:
+        identitySource: "$request.header.Authorization"
+        jwtConfiguration:
+          audience:
+          - Ref: CognitoAppClientQc
+          issuer:
+            Fn::GetAtt: [CognitoUserPool, ProviderURL]
+        type: "jwt"
+    cognito-bc-authclient:
+      type: "oauth2"
+      flows: {}
+      x-amazon-apigateway-authorizer:
+        identitySource: "$request.header.Authorization"
+        jwtConfiguration:
+          audience:
+          - Ref: CognitoAppClientBc
+          issuer:
+            Fn::GetAtt: [CognitoUserPool, ProviderURL]
+        type: "jwt"
+x-amazon-apigateway-cors:
+  allowMethods:
+  - "POST"
+  maxAge: 0
+  allowCredentials: true
+  allowOrigins:
+  - "http://*"
+  - "https://*"
+x-amazon-apigateway-importexport-version: "1.0"
