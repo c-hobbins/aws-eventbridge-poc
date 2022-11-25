@@ -16,7 +16,9 @@ Parameters:
     Default: dev
   
 Resources:
+# *********************************************************************************************
 # Cognito Resources for authentication/authorization using user pool and oauth2
+# *********************************************************************************************
   CognitoUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -111,12 +113,16 @@ Resources:
       AllowedOAuthScopes:
         - bc/write
 
+# *********************************************************************************************
 # Create SQS Queues and policy to allow eventbridge to send messages directly for the Quebec rule
+# *********************************************************************************************
+
   VitalstatsQueueQc:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: qc-births-q
       SqsManagedSseEnabled: false
+
   VitalstatsQueueCanada:
     Type: AWS::SQS::Queue
     Properties:
@@ -159,7 +165,9 @@ Resources:
             Action: sqs:SendMessage
             Resource: !GetAtt VitalstatsQueueCanada.Arn
 
+# *********************************************************************************************
 # SNS Topics
+# *********************************************************************************************
   BirthNotificationTopicAb:
     Type: AWS::SNS::Topic
     Properties:
@@ -193,7 +201,9 @@ Resources:
         - Protocol: sqs
           Endpoint: !GetAtt VitalstatsQueueCanada.Arn
 
+# *********************************************************************************************
 # SNS Topic Policy for allowing eventbridge to publish
+# *********************************************************************************************
   BirthNotificationTopicPolicy:
     Type: AWS::SNS::TopicPolicy
     DependsOn:
@@ -218,9 +228,12 @@ Resources:
         - !Ref BirthNotificationTopicQc
         - !Ref BirthNotificationTopicBc
 
-# Targets. Lambdas and REST API
+# *********************************************************************************************
+# Target definitions. Lambdas and REST APIs
 # Lambda serverless function defined which also creates the EventBridge Rule. Note that other rules are created separately...
 # Not entirely consistent but the SAM Lambda function resources can do a little more...
+# *********************************************************************************************
+
   processBirthEventLambda:
     Type: AWS::Serverless::Function
     Properties:
@@ -233,6 +246,22 @@ Resources:
       MemorySize: 128
       Timeout: 100
       Description: A simple Lambda REST API example to accept events invoked as an API destination target.
+      Tags:
+        cdxp:owner: chobbins
+        cdxp:project: eventbus poc
+
+  processEmailRequestLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetEmailAddress
+      CodeUri: src/handlers
+      Handler: get-email-handler.getEmailAddr
+      Runtime: nodejs14.x
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Description: A simple Lambda REST API to call from step function state model.
       Tags:
         cdxp:owner: chobbins
         cdxp:project: eventbus poc
@@ -254,7 +283,10 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt VitalstatsEventRuleOnt.Arn
       
+# *********************************************************************************************
 # Eventbridge, rules, and target configs
+# *********************************************************************************************
+
   VitalstatsEventBus:
     Type: AWS::Events::EventBus
     Properties:
@@ -364,7 +396,9 @@ Resources:
               Resource:
                 - !GetAtt VitalstatsApiDestinationAb.Arn
 
+# *********************************************************************************************
 # Create Log Group for access logging of API requests
+# *********************************************************************************************
   VitalStatsApiAccessLog:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -387,7 +421,10 @@ Resources:
         - Key: cdxp:project
           Value: sam eventbus poc
 
+# *********************************************************************************************
 # Create the REST API for the target API destination
+# *********************************************************************************************
+
   BirthEventApiTarget:
     Type: AWS::Serverless::Api
     DependsOn:
@@ -402,7 +439,23 @@ Resources:
           Parameters:
             Location: './restApiTargetOasSpec.yaml'
 
+  GetEmailAddressApi:
+    Type: AWS::Serverless::Api
+    DependsOn:
+      - processEmailRequestLambda
+    Properties:
+      TracingEnabled: true
+      Name: "GetEmailAddress"
+      StageName: !Ref TargetApiStage
+      DefinitionBody:
+        'Fn::Transform':  
+          Name: 'AWS::Include'
+          Parameters:
+            Location: './getEmailApiOasSpec.yaml'
+
+# *********************************************************************************************
 # Create the HTTP proxy to eventbridge
+# *********************************************************************************************
   VitalStatsApiProxy:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -434,6 +487,7 @@ Resources:
               Effect: Allow
               Resource:
                 - !GetAtt processBirthEventLambda.Arn
+                - !GetAtt processEmailRequestLambda.Arn
 
   VitalStatsApiProxyStageDEV:
     Type: AWS::ApiGatewayV2::Stage
@@ -479,6 +533,10 @@ Resources:
               Resource:
                 - !GetAtt VitalstatsEventBus.Arn
 
+# *********************************************************************************************
+# Outputs
+# *********************************************************************************************
+
 Outputs:
   ApiEndpoint:
     Description: "HTTP API endpoint URL"
@@ -511,5 +569,3 @@ Outputs:
     Value: !Sub
         - "BC App ClientId: ${AppClientIdBc}"
         - AppClientIdBc: !Ref CognitoAppClientBc
-
-  

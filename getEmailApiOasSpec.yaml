@@ -1,0 +1,31 @@
+openapi: "3.0.1"
+info:
+  title: "Get Email Address API"
+  description: "Just a simple REST Api to call from a step function for POC."
+paths:
+  /email-address/{id}:
+    get:
+      description: "Simple endpoint to return a fake email address"
+      Parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      x-amazon-apigateway-integration:
+        uri: 
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${processEmailRequestLambda.Arn}/invocations"
+        httpMethod: GET
+        credentials:
+          Fn::GetAtt: [CtobDpiCustomApiGWLambdaInvokeRole, Arn]
+        timeoutInMillis: 2000
+        type: "aws_proxy"
+      responses:
+        '200':
+          description: "Successful 200 response"
+          content: 
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: "Bad request"

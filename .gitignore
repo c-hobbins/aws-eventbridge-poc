@@ -3,3 +3,4 @@ data/
 diagrams/*.drawio
 diagrams/*.bkp
 backups/
+samconfig.toml
