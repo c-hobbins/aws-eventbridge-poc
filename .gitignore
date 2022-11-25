@@ -1,6 +1,7 @@
 .aws-sam/
+.vscode/
 data/
 diagrams/*.drawio
 diagrams/*.bkp
 backups/
-samconfig.toml
+./samconfig.toml
